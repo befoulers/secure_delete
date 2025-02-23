@@ -1,32 +1,45 @@
 import os
 import random
+import shutil
 import time
 
-def overwrite_file(file_path):
-    """Sobrescreve o conteúdo do arquivo com dados aleatórios."""
-    if not os.path.isfile(file_path):
-        print(f"Não é um arquivo: {file_path}")
-        return
+# Função para criar um nome de arquivo com padrão similar ao que você descreveu
+def create_z_pattern_name(length):
+    # Define um padrão alternado de 'Z' e '.' para o nome do arquivo
+    pattern = ''.join(['Z' if i % 2 == 0 else '.' for i in range(length)])
+    return pattern
 
-    # Obter o tamanho do arquivo
-    file_size = os.path.getsize(file_path)
-    
+# Função para sobrescrever um arquivo com um padrão específico
+def overwrite_with_pattern(file_path, pattern, size):
     try:
-        with open(file_path, 'wb') as file:
-            # Cria um buffer de dados aleatórios
-            random_data = bytearray(random.getrandbits(8) for _ in range(file_size))
-            file.write(random_data)
+        with open(file_path, 'rb+') as file:
+            file_size = os.path.getsize(file_path)
+            if size > file_size:
+                size = file_size
+            file.write(pattern * (size // len(pattern) + 1)[:size])
     except Exception as e:
-        print(f"Erro ao sobrescrever o arquivo {file_path}: {e}")
+        print(f"Erro ao sobrescrever com padrão {pattern}: {e}")
 
+# Função para sobrescrever com múltiplos padrões
+def secure_overwrite(file_path):
+    file_size = os.path.getsize(file_path)
+    patterns = [b'\x00', b'\xFF', bytes(random.getrandbits(8) for _ in range(600)), bytes([random.randint(0, 255) for _ in range(600)])]
+    
+    # Aumentar o número de sobrescrições para 15 para garantir que o arquivo seja efetivamente destruído
+    for _ in range(15):  # Sobrescrever 15 vezes com diferentes padrões
+        for pattern in patterns:
+            overwrite_with_pattern(file_path, pattern, file_size)
+
+# Função para mover e sobrescrever arquivos de maneira segura
 def secure_delete(path, script_path):
-    """Exclui arquivos e pastas de forma irreversível, sem excluir o próprio script."""
     if not os.path.exists(path):
         print(f"O caminho especificado não existe: {path}")
         return
 
+    temp_dir = os.path.join(os.path.dirname(path), 'temp_delete')
+    os.makedirs(temp_dir, exist_ok=True)
+
     if os.path.isdir(path):
-        # Se for uma pasta, exclua todos os arquivos e subpastas recursivamente
         for root, dirs, files in os.walk(path, topdown=False):
             for name in files:
                 file_path = os.path.join(root, name)
@@ -34,9 +47,17 @@ def secure_delete(path, script_path):
                     print(f"O próprio script não será excluído: {file_path}")
                     continue
                 try:
-                    overwrite_file(file_path)
-                    os.remove(file_path)
-                    print(f"Arquivo excluído: {file_path}")
+                    # Renomeando o arquivo com um padrão de 'Z's
+                    new_file_name = create_z_pattern_name(len(name))
+                    new_file_path = os.path.join(temp_dir, new_file_name)
+                    shutil.move(file_path, new_file_path)
+                    
+                    # Sobrescrevendo o arquivo com múltiplos padrões
+                    secure_overwrite(new_file_path)
+                    
+                    # Apagar o arquivo após sobrescrever
+                    os.remove(new_file_path)
+                    print(f"Arquivo excluído: {new_file_path}")
                 except Exception as e:
                     print(f"Erro ao excluir o arquivo {file_path}: {e}")
             for name in dirs:
@@ -46,8 +67,7 @@ def secure_delete(path, script_path):
                     print(f"Pasta excluída: {dir_path}")
                 except Exception as e:
                     print(f"Erro ao excluir a pasta {dir_path}: {e}")
-        # Tentar excluir a pasta com um atraso e várias tentativas
-        attempts = 5
+        attempts = 3
         for attempt in range(attempts):
             try:
                 os.rmdir(path)
@@ -55,28 +75,37 @@ def secure_delete(path, script_path):
                 break
             except Exception as e:
                 print(f"Erro ao excluir a pasta {path} (tentativa {attempt + 1} de {attempts}): {e}")
-                time.sleep(1)  # Aguarde um pouco antes de tentar novamente
+                time.sleep(1)
+        try:
+            os.rmdir(temp_dir)
+        except Exception as e:
+            print(f"Erro ao remover diretório temporário: {e}")
     elif os.path.isfile(path):
         if path == script_path:
             print(f"O próprio script não será excluído: {path}")
             return
         try:
-            overwrite_file(path)
-            os.remove(path)
-            print(f"Arquivo excluído: {path}")
+            # Renomeando o arquivo com um padrão de 'Z's
+            new_file_name = create_z_pattern_name(len(os.path.basename(path)))
+            new_file_path = os.path.join(temp_dir, new_file_name)
+            shutil.move(path, new_file_path)
+            
+            # Sobrescrevendo o arquivo com múltiplos padrões
+            secure_overwrite(new_file_path)
+            
+            # Apagar o arquivo após sobrescrever
+            os.remove(new_file_path)
+            print(f"Arquivo excluído: {new_file_path}")
         except Exception as e:
             print(f"Erro ao excluir o arquivo {path}: {e}")
 
-# Pega o diretório atual onde o script está localizado
+# Resto do script permanece o mesmo
 current_directory = os.path.dirname(os.path.abspath(__file__))
 script_path = os.path.abspath(__file__)
 
 print(f"Iniciando exclusão no diretório: {current_directory}")
 
-# Executa a exclusão segura no diretório atual e subpastas
 secure_delete(current_directory, script_path)
 
 print("Exclusão completa.")
-
-# Mantém o terminal aberto após a execução
 input("Pressione Enter para sair...")
